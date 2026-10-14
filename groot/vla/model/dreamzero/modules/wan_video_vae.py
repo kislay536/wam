@@ -3,6 +3,7 @@ from einops import rearrange, repeat
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
+import torch.cuda.nvtx as nvtx
 from tqdm import tqdm
 
 CACHE_T = 2
@@ -1221,10 +1222,12 @@ class WanVideoVAE(nn.Module):
         return hidden_states
 
     def decode(self, hidden_states, tiled=False, tile_size=(34, 34), tile_stride=(18, 16)):
+        nvtx.range_push("vae_decode")
         if tiled:
             video = self.tiled_decode(hidden_states, tile_size, tile_stride)
         else:
             video = self.single_decode(hidden_states)
+        nvtx.range_pop()
         return video
 
 

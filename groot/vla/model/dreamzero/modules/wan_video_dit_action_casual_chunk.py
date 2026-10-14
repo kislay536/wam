@@ -21,6 +21,7 @@ from diffusers.models.modeling_utils import ModelMixin
 import torch.nn as nn
 import torch.nn.functional as F
 import torch
+import torch.cuda.nvtx as nvtx
 import math
 import torch.distributed as dist
 import os
@@ -1185,6 +1186,7 @@ class CausalWanAttentionBlock(nn.Module):
         e = tuple(aligned)
 
         # self-attention
+        nvtx.range_push("self_attn")
         y, updated_kv_cache = self.self_attn(
             x=(self.norm1(x) * (1 + e[1].squeeze(2)) + e[0].squeeze(2)),
             freqs=freqs,
@@ -1195,15 +1197,20 @@ class CausalWanAttentionBlock(nn.Module):
             is_tf=is_tf,
             current_start_frame=current_start_frame,
         )
+        nvtx.range_pop()
         x = x + (y * e[2].squeeze(2))
 
         # cross-attention & ffn function
         def cross_attn_ffn(x, context, e):
+            nvtx.range_push("cross_attn")
             x = x + self.cross_attn(self.norm3(x), context)
+            nvtx.range_pop()
+            nvtx.range_push("ffn")
             y = self.ffn(
                 (self.norm2(x) * (1 + e[4].squeeze(2)) + e[3].squeeze(2))
             )
             x = x + (y * e[5].squeeze(2))
+            nvtx.range_pop()
             return x
 
         x = cross_attn_ffn(x, context, e)
@@ -1795,6 +1802,7 @@ class CausalWanModel(ModelMixin, ConfigMixin):
 
         updated_kv_caches: list[torch.Tensor] = []
         for block_index, block in enumerate(self.blocks):
+            nvtx.range_push(f"dit_block_{block_index}")
             x, updated_kv_cache = block(
                 x=x,
                 e=e0,
@@ -1806,6 +1814,7 @@ class CausalWanModel(ModelMixin, ConfigMixin):
                 kv_cache=kv_cache[block_index],
                 current_start_frame=current_start_frame,
             )
+            nvtx.range_pop()
             updated_kv_caches.append(updated_kv_cache)
 
         if action is not None:

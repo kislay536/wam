@@ -10,6 +10,7 @@ from einops import rearrange
 from hydra.utils import instantiate
 from peft import LoraConfig, get_peft_model
 import torch
+import torch.cuda.nvtx as nvtx
 from torch import nn
 import torch.distributed as dist
 from torch.distributed.device_mesh import DeviceMesh
@@ -1047,13 +1048,16 @@ class WANPolicyHead(ActionHead):
             print("videos shape", videos.shape, self.num_frames)
 
         start_text_encoder_event.record()
+        nvtx.range_push("text_encoder")
 
         text_inputs = self._prepare_text_inputs(data)
         prompt_embs = [self.encode_prompt(text, attention_mask) for text, attention_mask in text_inputs]
 
+        nvtx.range_pop()
         end_text_encoder_event.record()
-        
+
         start_image_encoder_event.record()
+        nvtx.range_push("image_encoder")
 
         _, _, num_frames, height, width = videos.shape
         if videos.shape[2] == 4 or videos.shape[2] == 9:
@@ -1069,9 +1073,11 @@ class WANPolicyHead(ActionHead):
         
         assert self.clip_feas is not None and self.ys is not None, "clip_feas and ys must be set"
 
+        nvtx.range_pop()
         end_image_encoder_event.record()
 
         start_vae_event.record()
+        nvtx.range_push("vae")
 
         if latent_video is not None and self.current_start_frame != 0:
             image = latent_video
@@ -1099,6 +1105,7 @@ class WANPolicyHead(ActionHead):
                 tile_stride=(self.tile_stride_height, self.tile_stride_width),
             )
 
+        nvtx.range_pop()
         end_vae_event.record()
 
         noise_obs = self.generate_noise((image.shape[0], image.shape[1], self.num_frame_per_block, image.shape[3], image.shape[4]), seed=self.seed, device='cuda', dtype=torch.bfloat16)
@@ -1139,6 +1146,7 @@ class WANPolicyHead(ActionHead):
         )
 
         start_kv_event.record()
+        nvtx.range_push("kv_cache_creation")
 
         if self.current_start_frame == 0:
             timestep = torch.ones([batch_size, 1], device=noise_obs.device, dtype=torch.int64) * 0
@@ -1189,6 +1197,7 @@ class WANPolicyHead(ActionHead):
                 ),
             )
 
+        nvtx.range_pop()
         end_kv_event.record()
 
         noisy_input = noise_obs
@@ -1226,8 +1235,10 @@ class WANPolicyHead(ActionHead):
         prev_predictions = [] 
         self.skip_countdown = 0
         dit_compute_steps = 0
+        nvtx.range_push("diffusion_loop")
         for index, current_timestep in enumerate(sample_scheduler.timesteps):
             start_diffusion_events[index].record()
+            nvtx.range_push(f"diffusion_step_{index}")
 
             # Get timesteps from respective schedulers
             action_timestep = sample_scheduler_action.timesteps[index]
@@ -1284,6 +1295,7 @@ class WANPolicyHead(ActionHead):
                 assert len(prev_predictions) > 0, "prev_predictions must be set when skipping"
                 _, flow_pred, flow_pred_cond_action = prev_predictions[-1]
 
+            nvtx.range_pop()
             end_diffusion_events[index].record()
 
             # Video: denoising step (uses rescaled schedule if decoupled)
@@ -1303,6 +1315,7 @@ class WANPolicyHead(ActionHead):
                 step_index=index,
                 return_dict=False,
             )[0]
+        nvtx.range_pop()  # diffusion_loop
 
         latents = noisy_input
         latents_action = noisy_input_action
