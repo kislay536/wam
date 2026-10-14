@@ -1,0 +1,49 @@
+dataset_path: "./sft_datasets/RoboCasa/"
+sequence_length: 9
+frame_skip: 4
+action_skip: 1
+video_size: [256, 320]
+augment: true
+crop_ratio: 0.95
+brightness: 0.2
+contrast: 0.2
+saturation: 0.2
+hue: 0.05
+inverse_gripper: false
+normalize_depths_per_view: false
+shuffle_view_order: false
+statistics:
+  q01:
+    proprio_left_ee_xyz:
+    - -0.25288332
+    - -0.61332822
+    - 0.074884735
+    action_left_ee_xyz:
+    - -1
+    - -1
+    - -1
+    action_left_ee_axisangle:
+    - -0.4525565
+    - -0.4379963
+    - -0.39695188
+    gripper_pos:
+    - -0.0010162197
+    gripper_action:
+    - -1.0
+  q99:
+    proprio_left_ee_xyz:
+    - 0.73430258
+    - 0.59759188
+    - 0.96864849
+    action_left_ee_xyz:
+    - 1
+    - 1
+    - 1
+    action_left_ee_axisangle:
+    - 0.45255655
+    - 0.4379963
+    - 0.39695188
+    gripper_pos:
+    - 1.0155567
+    gripper_action:
+    - 1.0

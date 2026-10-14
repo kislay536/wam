@@ -1,0 +1,73 @@
+dataset_path: "./sft_datasets/RoboTwin/"
+sequence_length: 9
+frame_skip: 4
+action_skip: 1
+video_size: [256, 320]
+augment: true
+crop_ratio: 0.95
+brightness: 0.2
+contrast: 0.2
+saturation: 0.2
+hue: 0.05
+inverse_gripper: false
+normalize_depths_per_view: false
+shuffle_view_order: false
+statistics:
+  q01:
+    proprio_left_ee_xyz:
+    - -0.31380481
+    - -0.052912265
+    - 0.83490938
+    action_left_ee_xyz:
+    - -0.017787576
+    - -0.015278069
+    - -0.012789667
+    action_left_ee_axisangle:
+    - -0.042664152
+    - -0.086674213
+    - -0.057689808
+    proprio_right_ee_xyz:
+    - -0.31280088
+    - -0.34872675
+    - 0.81883073
+    action_right_ee_xyz:
+    - -0.017702997
+    - -0.015232936
+    - -0.012529075
+    action_right_ee_axisangle:
+    - -0.043550342
+    - -0.086463645
+    - -0.050407965
+    gripper_pos:
+    - 0
+    gripper_action:
+    - -0.07537692785263062
+  q99:
+    proprio_left_ee_xyz:
+    - 0.091466717
+    - 0.35603338
+    - 1.0867579
+    action_left_ee_xyz:
+    - 0.017787576
+    - 0.015278069
+    - 0.012789667
+    action_left_ee_axisangle:
+    - 0.042664152
+    - 0.086674213
+    - 0.057689808
+    proprio_right_ee_xyz:
+    - 0.084402636
+    - 0.050203908
+    - 1.1061862
+    action_right_ee_xyz:
+    - 0.017702997
+    - 0.015232936
+    - 0.012529075
+    action_right_ee_axisangle:
+    - 0.043550342
+    - 0.086463645
+    - 0.050407965
+    gripper_pos:
+    - 1
+    gripper_action:
+    - 0.07537692785263062
