@@ -1,0 +1,9 @@
+export CUDA_HOME=/usr/lib/cuda-12.8
+export PATH=$CUDA_HOME/bin:$PATH
+export LD_LIBRARY_PATH=$CUDA_HOME/lib64:${LD_LIBRARY_PATH:-}
+export PIP_CACHE_DIR=/scratch/sws0/user/karya/wam/pip_cache
+export TMPDIR=/scratch/sws0/user/karya/wam/tmp
+export CCACHE_DIR=/scratch/sws0/user/karya/wam/ccache
+source /scratch/sws0/user/karya/wam/dreamzero/.venv/bin/activate
+export HF_HOME=/scratch/sws0/user/karya/wam/hf_cache
+export TRITON_CACHE_DIR=/scratch/sws0/user/karya/wam/tmp/triton_cache

@@ -1,3 +1,18 @@
+import os as _os
+# torchrun sets LOCAL_RANK before this process starts. Give each rank its own
+# Triton kernel cache dir: a shared TRITON_CACHE_DIR races both ranks'
+# torch.compile workers against the same compiled-kernel files on disk.
+if "TRITON_CACHE_DIR" in _os.environ:
+    _os.environ["TRITON_CACHE_DIR"] = _os.path.join(
+        _os.environ["TRITON_CACHE_DIR"], f"rank{_os.environ.get('LOCAL_RANK', '0')}"
+    )
+
+import deepspeed  # noqa: F401  (must import before transformers.modeling_utils to
+                   # avoid a circular import: transformers.modeling_utils imports
+                   # deepspeed mid-module-init, and deepspeed.runtime.hybrid_engine
+                   # eagerly reaches into transformers.models.opt.modeling_opt,
+                   # which re-enters the not-yet-finished transformers.modeling_utils.)
+import contextlib
 import dataclasses
 import logging
 import socket
@@ -30,6 +45,40 @@ from eval_utils.policy_server import WebsocketPolicyServer as RoboarenaServer
 from eval_utils.policy_server import PolicyServerConfig
 
 logger = logging.getLogger(__name__)
+
+# --- Optional PyTorch profiler hook around the forward pass ---------------
+# Enable by setting TORCH_PROFILE=1 in the environment. Captures the first
+# TORCH_PROFILE_STEPS forward passes per rank as Chrome traces under
+# TORCH_PROFILE_DIR, without touching default (unprofiled) behavior.
+_PROFILE_ENABLED = os.environ.get("TORCH_PROFILE", "0") == "1"
+_PROFILE_DIR = os.environ.get("TORCH_PROFILE_DIR", "./torch_profile_out")
+_PROFILE_MAX_STEPS = int(os.environ.get("TORCH_PROFILE_STEPS", "3"))
+_profile_step_counters: dict[int, int] = {}
+
+
+def _maybe_profile(rank: int):
+    step = _profile_step_counters.get(rank, 0)
+    if _PROFILE_ENABLED and step < _PROFILE_MAX_STEPS:
+        os.makedirs(_PROFILE_DIR, exist_ok=True)
+        return torch.profiler.profile(
+            activities=[torch.profiler.ProfilerActivity.CPU, torch.profiler.ProfilerActivity.CUDA],
+            record_shapes=True,
+            profile_memory=True,
+            with_stack=True,
+            with_modules=True,
+        )
+    return contextlib.nullcontext()
+
+
+def _finish_profile_step(rank: int, prof) -> None:
+    if prof is None:
+        return
+    step = _profile_step_counters.get(rank, 0)
+    trace_path = os.path.join(_PROFILE_DIR, f"rank{rank}_step{step}.json")
+    prof.export_chrome_trace(trace_path)
+    logger.info(f"Rank {rank}: wrote torch profiler trace to {trace_path}")
+    _profile_step_counters[rank] = step + 1
+
 
 @dataclasses.dataclass
 class Args:
@@ -280,10 +329,13 @@ class ARDroidRoboarenaPolicy:
         
         # Distributed forward pass
         dist.barrier()
-        with torch.no_grad():
-            result_batch, video_pred = self._policy.lazy_joint_forward_causal(batch)
+        _rank = dist.get_rank()
+        with _maybe_profile(_rank) as _prof:
+            with torch.no_grad():
+                result_batch, video_pred = self._policy.lazy_joint_forward_causal(batch)
+        _finish_profile_step(_rank, _prof)
         dist.barrier()
-        
+
         # Store video predictions for potential saving
         self.video_across_time.append(video_pred)
         
@@ -502,8 +554,11 @@ class WebsocketPolicyServer:
                 batch = self._receive_batch_from_rank0()
                 # Participate in distributed forward pass
                 dist.barrier()
-                with torch.no_grad():
-                    result_batch, video_pred = self._policy.lazy_joint_forward_causal(batch)
+                _rank = dist.get_rank()
+                with _maybe_profile(_rank) as _prof:
+                    with torch.no_grad():
+                        result_batch, video_pred = self._policy.lazy_joint_forward_causal(batch)
+                _finish_profile_step(_rank, _prof)
                 dist.barrier()
 
             except Exception as e:
@@ -576,8 +631,10 @@ class WebsocketPolicyServer:
                     # All ranks need to participate in the forward pass
                     dist.barrier()
                     forward_start_time = time.perf_counter()
-                    with torch.no_grad():
-                        result_batch, video_pred = self._policy.lazy_joint_forward_causal(batch)
+                    with _maybe_profile(0) as _prof:
+                        with torch.no_grad():
+                            result_batch, video_pred = self._policy.lazy_joint_forward_causal(batch)
+                    _finish_profile_step(0, _prof)
                     dist.barrier()
                     print(f"Forward Time: {time.perf_counter() - forward_start_time:.2f} seconds")
 
